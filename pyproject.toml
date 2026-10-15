@@ -25,6 +25,7 @@ dependencies = [
     "streamlit>=1.65.0",
     "textblob>=0.20.1",
     "wordcloud>=1.9.6",
+    "pyarrow>=15.0.0",  
 ]
 
 [project.scripts]

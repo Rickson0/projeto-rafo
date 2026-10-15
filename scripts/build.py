@@ -8,7 +8,7 @@ Pipeline:
     3. Pareia pergunta ↔ resposta via join_asof
     4. Limpa texto (regex de ruído)
     5. Treina NMF (tópicos TF-IDF) e BERTopic (tópicos semânticos)
-    6. Persiste resultados em public/ para consumo no WASM
+    6. Persiste resultados em public/ (parquet + JSON) para o WASM
     7. Exporta app.py para HTML+WASM em _site/
 
 Uso:
@@ -38,7 +38,7 @@ PUBLIC = ROOT / "public"
 SITE = ROOT / "_site"
 
 # ══════════════════════════════════════════════════════════════════════
-# Vocabulário Cosmere (idêntico ao notebook original)
+# Vocabulário Cosmere
 # ══════════════════════════════════════════════════════════════════════
 
 PERSONAGENS = {
@@ -119,7 +119,7 @@ DRAGONSTEEL_LOWERCASE = [n.lower() for n in DRAGONSTEEL_FUNCIONARIOS]
 VOCABULARIO = PERSONAGENS | PLANETAS | LIVROS | LORE
 
 # ══════════════════════════════════════════════════════════════════════
-# Metadados dos livros (idêntico ao notebook)
+# Metadados dos livros
 # ══════════════════════════════════════════════════════════════════════
 
 LIVROS_META = pl.DataFrame({
@@ -207,10 +207,8 @@ def filtrar_rafos(df: pl.DataFrame) -> pl.DataFrame:
 # ══════════════════════════════════════════════════════════════════════
 
 def parear_perguntas_respostas(df_rafo: pl.DataFrame) -> pl.DataFrame:
-    """
-    Separa falantes Dragonsteel das perguntas e pareia cada pergunta
-    com a próxima resposta do Brandon na mesma thread (via join_asof).
-    """
+    """Separa falantes Dragonsteel das perguntas e pareia cada pergunta
+    com a próxima resposta do Brandon na mesma thread (via join_asof)."""
     padrao_dragonsteel = "|".join(re.escape(n) for n in DRAGONSTEEL_LOWERCASE)
     eh_dragonsteel = (
         pl.col("speaker")
@@ -352,32 +350,44 @@ def rodar_bertopic(
 # 6. Persistência dos resultados
 # ══════════════════════════════════════════════════════════════════════
 
+def _pandas_para_polars(obj) -> pl.DataFrame:
+    """Converte pandas.DataFrame → polars.DataFrame (compat com BERTopic)."""
+    if isinstance(obj, pl.DataFrame):
+        return obj
+    # pandas ou qualquer coisa que tenha .to_dict(orient="records")
+    try:
+        return pl.from_pandas(obj)
+    except Exception:
+        return pl.DataFrame(obj)
+
+
 def salvar_resultados(
     topic_model: BERTopic,
     df_text_full: pl.DataFrame,
     nmf_result: pl.DataFrame,
 ) -> None:
-    """Salva tudo que o app WASM precisa consumir em public/."""
+    """Salva tudo que o app WASM precisa consumir em public/ (parquet + JSON)."""
     PUBLIC.mkdir(parents=True, exist_ok=True)
 
-    # ── Topic info (nome, contagem, top words) ────────────────────────
-    topic_info = topic_model.get_topic_info()
-    topic_info.to_parquet(PUBLIC / "topic_info.parquet")
+    # ── Topic info (BERTopic devolve pandas) ──────────────────────────
+    topic_info = _pandas_para_polars(topic_model.get_topic_info())
+    topic_info.write_parquet(PUBLIC / "topic_info.parquet")
     print(f"  → public/topic_info.parquet ({len(topic_info)} linhas)")
 
-    # ── Tópicos ao longo do tempo ─────────────────────────────────────
-    tot = topic_model.topics_over_time(
-        df_text_full["text_full"].to_list(),
-        timestamps=df_text_full["ano"].to_list(),
-        nr_bins=10,
+    # ── Tópicos ao longo do tempo (também pandas) ─────────────────────
+    topics_ot = _pandas_para_polars(
+        topic_model.topics_over_time(
+            df_text_full["text_full"].to_list(),
+            timestamps=df_text_full["ano"].to_list(),
+            nr_bins=10,
+        )
     )
-    tot.to_parquet(PUBLIC / "topics_over_time.parquet")
-    print(f"  → public/topics_over_time.parquet ({len(tot)} linhas)")
+    topics_ot.write_parquet(PUBLIC / "topics_over_time.parquet")
+    print(f"  → public/topics_over_time.parquet ({len(topics_ot)} linhas)")
 
-    # ── Atribuição doc → tópico (para filtros interativos) ────────────
-    topics = topic_model.topics_
+    # ── Atribuição doc → tópico ───────────────────────────────────────
     doc_topico = pl.DataFrame({
-        "topico": topics,
+        "topico": topic_model.topics_,
         "ano": df_text_full["ano"].to_list(),
     })
     doc_topico.write_parquet(PUBLIC / "doc_topicos.parquet")
@@ -390,31 +400,50 @@ def salvar_resultados(
             continue
         for palavra, peso in topic_model.get_topic(topico_id)[:10]:
             linhas_palavras.append({
-                "topico": topico_id,
-                "palavra": palavra,
+                "topico": int(topico_id),
+                "palavra": str(palavra),
                 "peso": float(peso),
             })
-    pl.DataFrame(linhas_palavras).write_parquet(PUBLIC / "topic_palavras.parquet")
-    print(f"  → public/topic_palavras.parquet ({len(linhas_palavras)} linhas)")
+    topic_palavras = pl.DataFrame(linhas_palavras)
+    topic_palavras.write_parquet(PUBLIC / "topic_palavras.parquet")
+    print(f"  → public/topic_palavras.parquet ({len(topic_palavras)} linhas)")
 
-    # ── Hierarquia (para heatmap reconstruído) ────────────────────────
+    # ── Hierarquia (opcional) ─────────────────────────────────────────
     try:
         hierarchy = topic_model.hierarchy_topics_()
-        (PUBLIC / "hierarchy.json").write_text(json.dumps(hierarchy))
-        print(f"  → public/hierarchy.json")
+        (PUBLIC / "hierarchy.json").write_text(json.dumps(hierarchy, default=str))
+        print("  → public/hierarchy.json")
     except Exception as e:
         print(f"  ⚠ Hierarquia não gerada: {e}")
 
-    # ── NMF ───────────────────────────────────────────────────────────
+    # ── NMF (já é polars) ─────────────────────────────────────────────
     nmf_result.write_parquet(PUBLIC / "nmf_topicos.parquet")
     print(f"  → public/nmf_topicos.parquet ({len(nmf_result)} linhas)")
 
-    # ── Dataset completo (para tabela paginada) ───────────────────────
-    df_text_full.select(
+    # ── Dataset completo (polars) ─────────────────────────────────────
+    dataset_export = df_text_full.select(
         "date", "speaker_p", "speaker_r", "pergunta", "resposta",
-        "pergunta_limpa", "resposta_limpa", "text_full", "ano",
-    ).write_parquet(PUBLIC / "dataset.parquet")
-    print(f"  → public/dataset.parquet ({len(df_text_full)} linhas)")
+        "text_full", "ano",
+    )
+    dataset_export.write_parquet(PUBLIC / "dataset.parquet")
+    print(f"  → public/dataset.parquet ({len(dataset_export)} linhas)")
+
+    # ═════════════════════════════════════════════════════════════════
+    # Versões JSON para o WASM (evita dependência do pyarrow no browser)
+    # ═════════════════════════════════════════════════════════════════
+    def _para_json(df: pl.DataFrame, nome: str) -> None:
+        """Serializa para JSON. Polars lida com Datetime e List automaticamente."""
+        (PUBLIC / f"{nome}.json").write_text(
+            json.dumps(df.to_dicts(), default=str)
+        )
+        print(f"  → public/{nome}.json")
+
+    _para_json(topic_info,     "topic_info")
+    _para_json(topic_palavras, "topic_palavras")
+    _para_json(topics_ot,      "topics_over_time")
+    _para_json(doc_topico,     "doc_topicos")
+    _para_json(nmf_result,     "nmf_topicos")
+    _para_json(dataset_export, "dataset")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -437,7 +466,7 @@ def exportar_wasm() -> None:
     if PUBLIC.exists():
         shutil.copytree(PUBLIC, SITE / "public", dirs_exist_ok=True)
 
-    # .nojekyll evita processamento pelo Jekyll
+    # .nojekyll evita processamento pelo Jekyll no GitHub Pages
     (SITE / ".nojekyll").touch()
 
     print(f"  → _site/index.html + _site/public/ ({len(list(PUBLIC.iterdir()))} assets)")
@@ -464,7 +493,6 @@ def main() -> None:
     print("\n[4/7] Limpando texto…")
     df_text_full = limpar_dataset(dataset)
 
-    # Manter versão "limpa" só com pergunta para NMF
     df_limpo = df_text_full.select("pergunta_limpa", "resposta_limpa")
 
     print("\n[5/7] Rodando NMF…")
@@ -480,7 +508,7 @@ def main() -> None:
     print("\n" + "═" * 60)
     print("🎉 Build completo!")
     print(f"   Teste local:  python -m http.server -d {SITE} 8000")
-    print(f"   Abra:         http://localhost:8000")
+    print("   Abra:         http://localhost:8000")
     print("═" * 60)
 
 
