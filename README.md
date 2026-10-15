@@ -3,11 +3,11 @@
 > Análise interativa das perguntas que o **Brandon Sanderson** responde com
 > **RAFO** (_Read And Find Out_) em Q&As e sessões de autógrafos.
 
-[![Deploy](https://github.com/SEU_USUARIO/projeto-rafo/actions/workflows/deploy.yml/badge.svg)](https://github.com/SEU_USUARIO/projeto-rafo/actions/workflows/deploy.yml)
+[![Deploy](https://github.com/Rickson0/projeto-rafo/actions/workflows/deploy.yml/badge.svg)](https://github.com/Rickson0/projeto-rafo/actions/workflows/deploy.yml)
 [![Built with marimo](https://img.shields.io/badge/built%20with-marimo-blue)](https://marimo.io)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](https://www.python.org)
 
-**🌐 Demo ao vivo:** https://SEU_USUARIO.github.io/projeto-rafo/
+**🌐 Demo ao vivo:** https://Rickson0.github.io/projeto-rafo/
 
 ---
 
@@ -46,7 +46,7 @@ para responder perguntas como:
 
 ### 🌐 Versão online
 
-Acesse **[SEU_USUARIO.github.io/projeto-rafo](https://SEU_USUARIO.github.io/projeto-rafo/)**
+Acesse **[Rickson0.github.io/projeto-rafo](https://Rickson0.github.io/projeto-rafo/)**
 e interaja direto no navegador — sem instalação.
 
 ### 💻 Localmente (modo notebook)
@@ -54,7 +54,7 @@ e interaja direto no navegador — sem instalação.
 Para editar/explorar o notebook reativo:
 
 ```bash
-git clone https://github.com/SEU_USUARIO/projeto-rafo.git
+git clone https://github.com/Rickson0/projeto-rafo.git
 cd projeto-rafo
 uv sync --extra build
 uv run marimo edit app.py
