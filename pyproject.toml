@@ -1,7 +1,7 @@
 [project]
 name = "projetorafo"
 version = "0.1.0"
-description = "Add your description here"
+description = "Dashboard interativo de RAFO do Brandon Sanderson"
 readme = "README.md"
 authors = [
     { name = "Rickson0", email = "ricksonkeu@hotmail.com" }
@@ -30,6 +30,17 @@ dependencies = [
 [project.scripts]
 projetorafo = "projetorafo:main"
 
+[project.optional-dependencies]
+# Dependências pesadas — só usadas no build (scripts/build.py)
+build = [
+    "scikit-learn>=1.5.0",
+    "bertopic>=0.16.0",
+    "pyarrow>=15.0.0",
+]
+
 [build-system]
-requires = ["uv_build>=0.12.19,<0.13.0"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.marimo.runtime]
+auto_instantiate = true

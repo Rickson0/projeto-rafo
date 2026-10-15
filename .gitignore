@@ -1,2 +1,12 @@
 .venv/
 ./data/raw/
+__pycache__/
+*.py[cod]
+.venv/
+_site/
+public/*.parquet
+public/*.json
+data/processed/
+.marimo_cache/
+*.db
+.DS_Store
